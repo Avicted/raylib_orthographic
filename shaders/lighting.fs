@@ -79,8 +79,8 @@ void main()
     finalColor = (texelColor * (colDiffuse + vec4(specular, 1.0)) * vec4(lightDot, 1.0));
     
     // Add ambient lighting
-    finalColor += texelColor * (ambient / 2.0) * colDiffuse;
+    finalColor += texelColor * (ambient / 16.0) * colDiffuse;
 
     // Gamma correction
-    finalColor = pow(finalColor, vec4(1.0 / 2.2));
+    finalColor = pow(finalColor, vec4(1.0 / 1.7));
 }

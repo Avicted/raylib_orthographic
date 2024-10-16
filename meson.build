@@ -4,16 +4,15 @@ project(
   version: '0.2.0', 
   default_options: [
     'cpp_std=c++20',
-    'warning_level=3',
-    'buildtype=release',
-    'optimization=2'
+    'warning_level=2',
+    'buildtype=debug',
+    'optimization=0'
   ],
 )
 
 # Compiler options based on system type
 if host_machine.system() == 'linux' or host_machine.system() == 'darwin' # macOS
     add_project_arguments([
-        '-Wpedantic',
         '-Wno-unused-parameter',
         '-Wno-unused-variable',
         '-Wno-unused-function',
@@ -59,4 +58,12 @@ fonts_copy = custom_target(
   command: ['cp', '-r', meson.source_root() / './resources/fonts', meson.build_root() / './resources'],
   build_by_default: true
 )
+
+fonts_copy = custom_target(
+  'copy_images',
+  output: 'images',
+  command: ['cp', '-r', meson.source_root() / './resources/images', meson.build_root() / './resources'],
+  build_by_default: true
+)
+
 
