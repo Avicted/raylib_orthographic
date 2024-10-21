@@ -1,4 +1,7 @@
 # Transport Tycoon style engine example
+- 2D Orthographic camera
+- Frustum culling
+- Batch rendering
 
 ### Build and Run
 ```bash
