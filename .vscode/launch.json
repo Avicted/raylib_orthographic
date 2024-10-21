@@ -7,7 +7,9 @@
             "request": "launch",
             "program": "${workspaceRoot}/build/raylib_orthographic",
             "cwd": "${workspaceRoot}",
-            "preLaunchTask": "build debug meson"
+            "preLaunchTask": "build debug meson",
+            "miDebuggerPath": "/usr/bin/gdb",
         }
     ]
 }
+

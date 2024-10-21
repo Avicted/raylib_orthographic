@@ -28,7 +28,7 @@ elif host_machine.system() == 'windows'
 endif
 
 # Find the system-installed Raylib library
-raylib_dep = dependency('raylib', required: true)
+raylib_dep = dependency('raylib', required: true, version: '>=4.5.0')
 
 # Include directories
 inc_dir = include_directories('includes')
