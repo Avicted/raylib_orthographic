@@ -234,6 +234,9 @@ GameUpdate(f64 DeltaTime)
         Vector2 mouseDelta = GetMouseDelta();
         f64 speedMultiplier = CameraSpeed;
 
+        // Place the mouse at the center of the screen again, for the next frame
+        SetMousePosition(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+
         // Calculate the movement delta based on a 45-degree angle
         f64 deltaX = (mouseDelta.y + mouseDelta.x) * speedMultiplier * CameraAndgleCos; // cos(45 degrees) = sin(45 degrees) = 0.7071
         f64 deltaZ = (mouseDelta.y - mouseDelta.x) * speedMultiplier * CameraAndgleSin;
