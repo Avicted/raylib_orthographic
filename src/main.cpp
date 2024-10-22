@@ -30,10 +30,13 @@ Material *GroundMaterials = NULL;
 Shader CustomShader = {0};
 
 Camera3D MainCamera = {};
-Vector3 CameraStartPosition = (Vector3){80.0f, 180.0f, 0.0f};
+const f64 CameraAngle = 45.0;
+const f64 CameraAndgleCos = cos(CameraAngle * DEG2RAD);
+const f64 CameraAndgleSin = sin(CameraAngle * DEG2RAD);
+Vector3 CameraStartPosition = (Vector3){CameraAngle, 180.0f, CameraAngle};
 
 Camera3D DebugCamera = {};
-Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 90.0f * 2.0, 90.0f * 2.0};
+Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 180.0f * 2.0, 90.0f * 2.0};
 
 // Types -----------------------------------------------------
 typedef struct GroundTile
@@ -59,7 +62,7 @@ GroundTile *GroundTiles = NULL;
 typedef struct Plane
 {
     Vector3 normal; // Normal of the plane
-    f32 d;          // Distance from the origin to the plane
+    f32 distance;   // Distance from the origin to the plane
 };
 
 typedef struct Frustum
@@ -72,6 +75,14 @@ Material Mat01;
 Material Mat02;
 Material Mat03;
 Material Mat04;
+
+typedef struct TransformEntry
+{
+    Matrix transform;
+    i32 materialIndex;
+};
+
+std::vector<TransformEntry> transformsInView;
 // ----------------------------------------------------------
 
 internal std::vector<GroundTile>
@@ -221,22 +232,26 @@ GameUpdate(f64 DeltaTime)
     if (IsMouseButtonDown(MOUSE_RIGHT_BUTTON))
     {
         Vector2 mouseDelta = GetMouseDelta();
-        f32 speedMultiplier = CameraSpeed;
+        f64 speedMultiplier = CameraSpeed;
 
-        // Move the camera based on the mouse movement delta
-        MainCamera.position.z += -mouseDelta.x * speedMultiplier; // Move right/left
-        MainCamera.position.x += mouseDelta.y * speedMultiplier;  // Move up/down
+        // Calculate the movement delta based on a 45-degree angle
+        f64 deltaX = (mouseDelta.y + mouseDelta.x) * speedMultiplier * CameraAndgleCos; // cos(45 degrees) = sin(45 degrees) = 0.7071
+        f64 deltaZ = (mouseDelta.y - mouseDelta.x) * speedMultiplier * CameraAndgleSin;
+
+        // Move the camera based on the calculated delta
+        MainCamera.position.x += deltaX;
+        MainCamera.position.z += deltaZ;
 
         // Update the camera target to maintain focus
-        MainCamera.target.z += -mouseDelta.x * speedMultiplier;
-        MainCamera.target.x += mouseDelta.y * speedMultiplier;
+        MainCamera.target.x += deltaX;
+        MainCamera.target.z += deltaZ;
 
         // Update the debug camera position and target by adding the same delta
-        DebugCamera.position.x += mouseDelta.y * speedMultiplier;
-        DebugCamera.position.z += mouseDelta.x * speedMultiplier;
+        DebugCamera.position.x += deltaX;
+        DebugCamera.position.z += deltaZ;
 
-        DebugCamera.target.x += mouseDelta.y * speedMultiplier;
-        DebugCamera.target.z += mouseDelta.x * speedMultiplier;
+        DebugCamera.target.x += deltaX;
+        DebugCamera.target.z += deltaZ;
     }
 
     if (Debug)
@@ -281,7 +296,6 @@ GameUpdate(f64 DeltaTime)
 }
 
 internal void
-
 calculateBoundingBox(GroundTile *tile)
 {
     const f32 halfWidth = tile->width / 2.0f;
@@ -325,7 +339,7 @@ isBoxInFrustum(const Frustum *frustum, const BoundingBox *box)
     for (i32 i = 0; i < 6; ++i)
     {
         Vector3 normal = frustum->planes[i].normal;
-        f32 d = frustum->planes[i].d;
+        f32 distance = frustum->planes[i].distance;
 
         // Find the most positive vertex (the farthest poi32 along the normal)
         Vector3 positiveVertex = (Vector3){
@@ -340,7 +354,7 @@ isBoxInFrustum(const Frustum *frustum, const BoundingBox *box)
             (normal.z < 0.0f) ? box->max.z : box->min.z};
 
         // If the positive vertex is behind the plane, the box is outside
-        if ((normal.x * positiveVertex.x + normal.y * positiveVertex.y + normal.z * positiveVertex.z + d) < 0.0f)
+        if ((normal.x * positiveVertex.x + normal.y * positiveVertex.y + normal.z * positiveVertex.z + distance) < 0.0f)
         {
             return 0; // Box is outside the frustum
         }
@@ -359,12 +373,12 @@ calculateFrustum(Camera3D camera)
     Matrix viewProjMatrix = MatrixMultiply(viewMatrix, projectionMatrix);
 
     // Extract frustum planes (left, right, bottom, top, near, far)
-    frustum.planes[0] = (Plane){.normal = {viewProjMatrix.m3 + viewProjMatrix.m0, viewProjMatrix.m7 + viewProjMatrix.m4, viewProjMatrix.m11 + viewProjMatrix.m8}, .d = viewProjMatrix.m15 + viewProjMatrix.m12};  // Left
-    frustum.planes[1] = (Plane){.normal = {viewProjMatrix.m3 - viewProjMatrix.m0, viewProjMatrix.m7 - viewProjMatrix.m4, viewProjMatrix.m11 - viewProjMatrix.m8}, .d = viewProjMatrix.m15 - viewProjMatrix.m12};  // Right
-    frustum.planes[2] = (Plane){.normal = {viewProjMatrix.m3 + viewProjMatrix.m1, viewProjMatrix.m7 + viewProjMatrix.m5, viewProjMatrix.m11 + viewProjMatrix.m9}, .d = viewProjMatrix.m15 + viewProjMatrix.m13};  // Bottom
-    frustum.planes[3] = (Plane){.normal = {viewProjMatrix.m3 - viewProjMatrix.m1, viewProjMatrix.m7 - viewProjMatrix.m5, viewProjMatrix.m11 - viewProjMatrix.m9}, .d = viewProjMatrix.m15 - viewProjMatrix.m13};  // Top
-    frustum.planes[4] = (Plane){.normal = {viewProjMatrix.m3 + viewProjMatrix.m2, viewProjMatrix.m7 + viewProjMatrix.m6, viewProjMatrix.m11 + viewProjMatrix.m10}, .d = viewProjMatrix.m15 + viewProjMatrix.m14}; // Near
-    frustum.planes[5] = (Plane){.normal = {viewProjMatrix.m3 - viewProjMatrix.m2, viewProjMatrix.m7 - viewProjMatrix.m6, viewProjMatrix.m11 - viewProjMatrix.m10}, .d = viewProjMatrix.m15 - viewProjMatrix.m14}; // Far
+    frustum.planes[0] = (Plane){.normal = {viewProjMatrix.m3 + viewProjMatrix.m0, viewProjMatrix.m7 + viewProjMatrix.m4, viewProjMatrix.m11 + viewProjMatrix.m8}, .distance = viewProjMatrix.m15 + viewProjMatrix.m12};  // Left
+    frustum.planes[1] = (Plane){.normal = {viewProjMatrix.m3 - viewProjMatrix.m0, viewProjMatrix.m7 - viewProjMatrix.m4, viewProjMatrix.m11 - viewProjMatrix.m8}, .distance = viewProjMatrix.m15 - viewProjMatrix.m12};  // Right
+    frustum.planes[2] = (Plane){.normal = {viewProjMatrix.m3 + viewProjMatrix.m1, viewProjMatrix.m7 + viewProjMatrix.m5, viewProjMatrix.m11 + viewProjMatrix.m9}, .distance = viewProjMatrix.m15 + viewProjMatrix.m13};  // Bottom
+    frustum.planes[3] = (Plane){.normal = {viewProjMatrix.m3 - viewProjMatrix.m1, viewProjMatrix.m7 - viewProjMatrix.m5, viewProjMatrix.m11 - viewProjMatrix.m9}, .distance = viewProjMatrix.m15 - viewProjMatrix.m13};  // Top
+    frustum.planes[4] = (Plane){.normal = {viewProjMatrix.m3 + viewProjMatrix.m2, viewProjMatrix.m7 + viewProjMatrix.m6, viewProjMatrix.m11 + viewProjMatrix.m10}, .distance = viewProjMatrix.m15 + viewProjMatrix.m14}; // Near
+    frustum.planes[5] = (Plane){.normal = {viewProjMatrix.m3 - viewProjMatrix.m2, viewProjMatrix.m7 - viewProjMatrix.m6, viewProjMatrix.m11 - viewProjMatrix.m10}, .distance = viewProjMatrix.m15 - viewProjMatrix.m14}; // Far
 
     return frustum;
 }
@@ -433,20 +447,21 @@ GameRender(f64 DeltaTime)
             if (isBoxInFrustum(&cameraFrustum, &GroundTiles[Id].BoundingVolume))
             {
                 // Add the tile's transform to the appropriate list based on its material
-                switch (GroundTiles[Id].MaterialIndex)
+                if (GroundTiles[Id].MaterialIndex == 0)
                 {
-                case 0:
                     TransformsInView01.push_back(GroundTiles[Id].MatrixTransform);
-                    break;
-                case 1:
+                }
+                else if (GroundTiles[Id].MaterialIndex == 1)
+                {
                     TransformsInView02.push_back(GroundTiles[Id].MatrixTransform);
-                    break;
-                case 2:
+                }
+                else if (GroundTiles[Id].MaterialIndex == 2)
+                {
                     TransformsInView03.push_back(GroundTiles[Id].MatrixTransform);
-                    break;
-                case 3:
+                }
+                else if (GroundTiles[Id].MaterialIndex == 3)
+                {
                     TransformsInView04.push_back(GroundTiles[Id].MatrixTransform);
-                    break;
                 }
 
                 InViewCount++;
@@ -554,13 +569,13 @@ i32 main(i32 argc, char **argv)
     MainCamera.position = CameraStartPosition;
     MainCamera.target = {0.0f, 0.0f, 0.0f};
     MainCamera.up = {0.0f, 1.0f, 0.0f};
-    MainCamera.fovy = 45.0f; // Adjust if necessary
+    MainCamera.fovy = 45.0f;
     MainCamera.projection = CAMERA_ORTHOGRAPHIC;
 
     DebugCamera.position = DebugCameraStartPosition;
     DebugCamera.target = {0.0f, 0.0f, 0.0f};
     DebugCamera.up = {0.0f, 1.0f, 0.0f};
-    DebugCamera.fovy = 80.0f; // Adjust if necessary
+    DebugCamera.fovy = 80.0f;
     DebugCamera.projection = CAMERA_PERSPECTIVE;
 
     // Raylib setup ---------------------------------------------------
