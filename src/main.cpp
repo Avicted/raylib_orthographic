@@ -33,7 +33,7 @@ Camera3D MainCamera = {};
 const f64 CameraAngle = 45.0;
 const f64 CameraAndgleCos = cos(CameraAngle * DEG2RAD);
 const f64 CameraAndgleSin = sin(CameraAngle * DEG2RAD);
-Vector3 CameraStartPosition = (Vector3){CameraAngle, 180.0f, CameraAngle};
+Vector3 CameraStartPosition = (Vector3){CameraAngle * 4, 180.0f, CameraAngle * 4};
 
 Camera3D DebugCamera = {};
 Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 180.0f * 2.0, 90.0f * 2.0};
