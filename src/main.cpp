@@ -9,9 +9,8 @@
 i32 SCREEN_WIDTH = 640 * 2;
 i32 SCREEN_HEIGHT = 360 * 2;
 
-bool Debug = false;
-// const i64 MAP_SIZE = 512;
-const i64 MAP_SIZE = 128;
+bool Debug = true;
+const i64 MAP_SIZE = 512;
 const i64 SQUARE_SIZE = 32;
 
 u64 CPUMemory = 0L;
@@ -30,10 +29,10 @@ Material *GroundMaterials = NULL;
 Shader CustomShader = {0};
 
 Camera3D MainCamera = {};
-const f64 CameraAngle = 45.0;
+const f64 CameraAngle = 0.0;
 const f64 CameraAndgleCos = cos(CameraAngle * DEG2RAD);
 const f64 CameraAndgleSin = sin(CameraAngle * DEG2RAD);
-Vector3 CameraStartPosition = (Vector3){CameraAngle * 4, 180.0f, CameraAngle * 4};
+Vector3 CameraStartPosition = (Vector3){90.0 * 2.0, 180.0 * 2, 90.0 * 2.0};
 
 Camera3D DebugCamera = {};
 Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 180.0f * 2.0, 90.0f * 2.0};
@@ -59,6 +58,12 @@ typedef struct GroundTile
 
 GroundTile *GroundTiles = NULL;
 
+GroundTile *SelectedGroundTile = NULL;
+// Display information about closest hit
+RayCollision collision = {0};
+char *hitObjectName = "None";
+Ray ray = {0}; // Picking ray
+
 typedef struct Plane
 {
     Vector3 normal; // Normal of the plane
@@ -82,7 +87,6 @@ typedef struct TransformEntry
     i32 materialIndex;
 };
 
-std::vector<TransformEntry> transformsInView;
 // ----------------------------------------------------------
 
 internal std::vector<GroundTile>
@@ -169,6 +173,25 @@ HandleWindowResize(void)
     }
 }
 
+internal Vector2
+GetTileCoordsUnderMouse(RayCollision groundHitInfo, Camera3D camera)
+{
+    Vector2 tileCoords = {-1, -1}; // Initialize to out-of-bounds
+
+    // World space collision point on the ground
+    Vector3 hitPosition = collision.point;
+
+    // Convert to local grid coordinates by adjusting for map offset and tile size
+    f64 localX = hitPosition.x + (MAP_SIZE * SQUARE_SIZE) / 2.0f;
+    f64 localZ = hitPosition.z + (MAP_SIZE * SQUARE_SIZE) / 2.0f;
+
+    // Calculate tile indices (floor to get correct tile)
+    tileCoords.x = floor(localX / SQUARE_SIZE);
+    tileCoords.y = floor(localZ / SQUARE_SIZE);
+
+    return tileCoords;
+}
+
 internal void
 GameUpdate(f64 DeltaTime)
 {
@@ -182,6 +205,51 @@ GameUpdate(f64 DeltaTime)
     if (IsKeyPressed(KEY_F11))
     {
         ToggleFullscreen();
+    }
+
+    // Set the hovered tile
+    {
+        // Reset the collision info
+        // collision = {0};
+        hitObjectName = "None";
+        ray = GetMouseRay(GetMousePosition(), MainCamera);
+
+        // Check ray collision against ground quad
+        // g0: Bottom-left corner of the map.
+        const Vector3 g0 = Vector3Transform((Vector3){-MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, -MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
+
+        // g1: Bottom-right corner of the map.
+        const Vector3 g1 = Vector3Transform((Vector3){MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, -MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
+
+        // g2: Top-left corner of the map.
+        const Vector3 g2 = Vector3Transform((Vector3){-MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
+
+        // g3: Top-right corner of the map.
+        const Vector3 g3 = Vector3Transform((Vector3){MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
+
+        RayCollision groundHitInfo = GetRayCollisionQuad(ray, g0, g1, g2, g3);
+
+        if ((groundHitInfo.hit)) // && (groundHitInfo.distance < collision.distance))
+        {
+            collision = groundHitInfo;
+            hitObjectName = "Ground";
+
+            Vector2 tileCoords = GetTileCoordsUnderMouse(groundHitInfo, MainCamera);
+            i64 Id = static_cast<i64>(tileCoords.x) * MAP_SIZE + static_cast<i64>(tileCoords.y);
+
+            // printf("Tile Coords: x: %f, y: %f\n", tileCoords.x, tileCoords.y);
+            // printf("Tile ID: %lld\n", Id);
+
+            if (tileCoords.x >= 0 && tileCoords.y >= 0 &&
+                tileCoords.x < MAP_SIZE && tileCoords.y < MAP_SIZE)
+            {
+                SelectedGroundTile = &GroundTiles[Id];
+            }
+            else
+            {
+                SelectedGroundTile = NULL;
+            }
+        }
     }
 
     // Zoom out
@@ -234,12 +302,11 @@ GameUpdate(f64 DeltaTime)
         Vector2 mouseDelta = GetMouseDelta();
         f64 speedMultiplier = CameraSpeed;
 
-        // Place the mouse at the center of the screen again, for the next frame
-        SetMousePosition(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+        DisableCursor();
 
         // Calculate the movement delta based on a 45-degree angle
-        f64 deltaX = (mouseDelta.y + mouseDelta.x) * speedMultiplier * CameraAndgleCos; // cos(45 degrees) = sin(45 degrees) = 0.7071
-        f64 deltaZ = (mouseDelta.y - mouseDelta.x) * speedMultiplier * CameraAndgleSin;
+        f64 deltaX = (mouseDelta.y + mouseDelta.x) * speedMultiplier; // cos(45 degrees) = sin(45 degrees) = 0.7071
+        f64 deltaZ = (mouseDelta.y - mouseDelta.x) * speedMultiplier;
 
         // Move the camera based on the calculated delta
         MainCamera.position.x += deltaX;
@@ -255,6 +322,10 @@ GameUpdate(f64 DeltaTime)
 
         DebugCamera.target.x += deltaX;
         DebugCamera.target.z += deltaZ;
+    }
+    else if (IsMouseButtonReleased(MOUSE_RIGHT_BUTTON))
+    {
+        EnableCursor();
     }
 
     if (Debug)
@@ -344,13 +415,13 @@ isBoxInFrustum(const Frustum *frustum, const BoundingBox *box)
         Vector3 normal = frustum->planes[i].normal;
         f32 distance = frustum->planes[i].distance;
 
-        // Find the most positive vertex (the farthest poi32 along the normal)
+        // Find the most positive vertex (the farthest point along the normal)
         Vector3 positiveVertex = (Vector3){
             (normal.x > 0.0f) ? box->max.x : box->min.x,
             (normal.y > 0.0f) ? box->max.y : box->min.y,
             (normal.z > 0.0f) ? box->max.z : box->min.z};
 
-        // Find the most negative vertex (the nearest poi32 along the normal)
+        // Find the most negative vertex (the nearest point along the normal)
         Vector3 negativeVertex = (Vector3){
             (normal.x < 0.0f) ? box->max.x : box->min.x,
             (normal.y < 0.0f) ? box->max.y : box->min.y,
@@ -362,6 +433,7 @@ isBoxInFrustum(const Frustum *frustum, const BoundingBox *box)
             return 0; // Box is outside the frustum
         }
     }
+
     return 1; // Box is inside or intersects the frustum
 }
 
@@ -370,9 +442,10 @@ calculateFrustum(Camera3D camera)
 {
     Frustum frustum;
     Matrix viewMatrix = MatrixLookAt(camera.position, camera.target, camera.up);
-    Matrix projectionMatrix = MatrixPerspective(camera.fovy * DEG2RAD,
-                                                (float)GetScreenWidth() / (float)GetScreenHeight(),
-                                                0.01f, 2000.0f);
+    f32 aspect = (f32)GetScreenWidth() / (f32)GetScreenHeight();
+    f32 top = tanf(camera.fovy * 0.5f * DEG2RAD);
+    f32 right = top * aspect;
+    Matrix projectionMatrix = MatrixPerspective(camera.fovy * DEG2RAD, aspect, 0.01f, 4000.0f);
     Matrix viewProjMatrix = MatrixMultiply(viewMatrix, projectionMatrix);
 
     // Extract frustum planes (left, right, bottom, top, near, far)
@@ -404,8 +477,8 @@ GameRender(f64 DeltaTime)
     {
         // Set the projection matrix based on the camera
         Matrix projection = MatrixPerspective(MainCamera.fovy * (PI / 180.0f),
-                                              (float)GetScreenWidth() / (float)GetScreenHeight(),
-                                              0.01f, 2000.0f);
+                                              (f32)GetScreenWidth() / (f32)GetScreenHeight(),
+                                              0.01f, 4000.0f);
         rlSetMatrixProjection(projection);
     }
 
@@ -416,7 +489,7 @@ GameRender(f64 DeltaTime)
     // Render wires for the cameraFrustum
     if (Debug)
     {
-        DrawCubeWires(MainCamera.position, 32.0f, 32.0f, 32.0f, RED);
+        // DrawCubeWires(MainCamera.position, 32.0f, 32.0f, 32.0f, RED);
         // DrawCube(MainCamera.position, 32.0f, 32.0f, 32.0f, Fade(RED, 0.1f));
 
         // Draw the Debug camera frustum
@@ -424,7 +497,7 @@ GameRender(f64 DeltaTime)
         {
             DrawLine3D((Vector3){cameraFrustum.planes[i].normal.x, cameraFrustum.planes[i].normal.y, cameraFrustum.planes[i].normal.z},
                        (Vector3){cameraFrustum.planes[i].normal.x * 1000.0f, cameraFrustum.planes[i].normal.y * 1000.0f, cameraFrustum.planes[i].normal.z * 1000.0f},
-                       RED);
+                       GREEN);
         }
     }
 
@@ -444,7 +517,7 @@ GameRender(f64 DeltaTime)
             const usize Id = i * MAP_SIZE + j;
 
             // Calculate the bounding box for each tile
-            calculateBoundingBox(&GroundTiles[Id]);
+            // calculateBoundingBox(&GroundTiles[Id]);
 
             // Check if the tile is in the frustum
             if (isBoxInFrustum(&cameraFrustum, &GroundTiles[Id].BoundingVolume))
@@ -469,6 +542,12 @@ GameRender(f64 DeltaTime)
 
                 InViewCount++;
             }
+
+            // Draw the bounding box for each tile
+            /*if (Debug)
+            {
+                DrawBoundingBox(GroundTiles[Id].BoundingVolume, RED);
+            }*/
         }
     }
 
@@ -489,6 +568,34 @@ GameRender(f64 DeltaTime)
     {
         DrawMeshInstanced(GroundMesh, Mat04, TransformsInView04.data(), TransformsInView04.size());
     }
+
+    // Highlight the selected tile
+    if (SelectedGroundTile != NULL)
+    {
+        if (collision.hit)
+        {
+            // Calculate the position for the magenta cube based on the mouse position
+            Vector3 cursorPosition = collision.point; // This is where the ray hit
+            cursorPosition.y += 5.0f;                 // Offset it above the ground
+
+            DrawCube(cursorPosition, 10.0f, 10.0f, 10.0f, MAGENTA);
+            DrawCubeWires(cursorPosition, 10.0f, 10.0f, 10.0f, WHITE);
+
+            Vector3 normalEnd = {
+                collision.point.x + collision.normal.x,
+                collision.point.y + collision.normal.y,
+                collision.point.z + collision.normal.z};
+
+            DrawLine3D(collision.point, normalEnd, RED);
+
+            // Highlight the selected tile
+            DrawCubeWires(Vector3Transform((Vector3){0.0f, 0.0f, 0.0f}, SelectedGroundTile->MatrixTransform), SelectedGroundTile->width, SelectedGroundTile->height, SelectedGroundTile->depth, WHITE);
+        }
+
+        DrawRay(ray, MAROON);
+    }
+
+    // DrawGrid(MAP_SIZE, SQUARE_SIZE);
 
     EndMode3D();
 
@@ -520,6 +627,28 @@ GameRender(f64 DeltaTime)
 
     DrawTextEx(MainFont, TextFormat("DebugCamera.position: %f, %f, %f", DebugCamera.position.x, DebugCamera.position.y, DebugCamera.position.z), {10, 192}, 16, 2, BLACK);
     DrawTextEx(MainFont, TextFormat("DebugCamera.position: %f, %f, %f", DebugCamera.position.x, DebugCamera.position.y, DebugCamera.position.z), {13, 195}, 16, 2, WHITE);
+
+    if (SelectedGroundTile != NULL)
+    {
+        DrawTextEx(MainFont, TextFormat("Selected Tile: %i", SelectedGroundTile->MaterialIndex), {10, 224}, 16, 2, BLACK);
+        DrawTextEx(MainFont, TextFormat("Selected Tile: %i", SelectedGroundTile->MaterialIndex), {13, 227}, 16, 2, WHITE);
+
+        // SelectedGroundTile transform position
+        DrawTextEx(MainFont, TextFormat("Selected Tile Position: %f, %f, %f", SelectedGroundTile->MatrixTransform.m12, SelectedGroundTile->MatrixTransform.m13, SelectedGroundTile->MatrixTransform.m14), {10, 256}, 16, 2, BLACK);
+        DrawTextEx(MainFont, TextFormat("Selected Tile Position: %f, %f, %f", SelectedGroundTile->MatrixTransform.m12, SelectedGroundTile->MatrixTransform.m13, SelectedGroundTile->MatrixTransform.m14), {13, 259}, 16, 2, WHITE);
+
+        // Draw some debug GUI text
+        DrawTextEx(MainFont, TextFormat("Hit Object: %s", hitObjectName), (Vector2){10, 288}, 20, 2, BLACK);
+        DrawTextEx(MainFont, TextFormat("Hit Object: %s", hitObjectName), (Vector2){13, 291}, 20, 2, WHITE);
+
+        DrawTextEx(MainFont, TextFormat("Hit Distance: %f", collision.distance), (Vector2){10, 320}, 20, 2, BLACK);
+        DrawTextEx(MainFont, TextFormat("Hit Distance: %f", collision.distance), (Vector2){13, 323}, 20, 2, WHITE);
+    }
+    else
+    {
+        DrawTextEx(MainFont, "No Tile Selected", {10, 224}, 16, 2, BLACK);
+        DrawTextEx(MainFont, "No Tile Selected", {13, 227}, 16, 2, WHITE);
+    }
 
     EndDrawing();
 }
@@ -572,13 +701,13 @@ i32 main(i32 argc, char **argv)
     MainCamera.position = CameraStartPosition;
     MainCamera.target = {0.0f, 0.0f, 0.0f};
     MainCamera.up = {0.0f, 1.0f, 0.0f};
-    MainCamera.fovy = 45.0f;
-    MainCamera.projection = CAMERA_ORTHOGRAPHIC;
+    MainCamera.fovy = 75.0f;
+    MainCamera.projection = CAMERA_PERSPECTIVE;
 
     DebugCamera.position = DebugCameraStartPosition;
     DebugCamera.target = {0.0f, 0.0f, 0.0f};
     DebugCamera.up = {0.0f, 1.0f, 0.0f};
-    DebugCamera.fovy = 80.0f;
+    DebugCamera.fovy = 75.0f;
     DebugCamera.projection = CAMERA_PERSPECTIVE;
 
     // Raylib setup ---------------------------------------------------
@@ -645,6 +774,9 @@ i32 main(i32 argc, char **argv)
 
                 const f64 Scale = 0.03150;
                 GroundTiles[Id].MatrixTransform = MatrixMultiply(GroundTiles[Id].MatrixTransform, MatrixScale(SQUARE_SIZE * Scale, SQUARE_SIZE * Scale, SQUARE_SIZE * Scale));
+
+                GroundTiles[Id].MatrixTransform = MatrixMultiply(GroundTiles[Id].MatrixTransform, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
+
                 GroundTiles[Id].MatrixTransform = MatrixMultiply(GroundTiles[Id].MatrixTransform, MatrixTranslate(X * SQUARE_SIZE, Y * SQUARE_SIZE, Z * SQUARE_SIZE));
 
                 // Assign Random Material
@@ -689,6 +821,8 @@ i32 main(i32 argc, char **argv)
 
                 GroundTiles[Id].BoundingVolume.min = (Vector3){-0.5f * SQUARE_SIZE, 0.0f * SQUARE_SIZE, -0.5f * SQUARE_SIZE};
                 GroundTiles[Id].BoundingVolume.max = (Vector3){0.5f * SQUARE_SIZE, 0.0f * SQUARE_SIZE, 0.5f * SQUARE_SIZE};
+
+                calculateBoundingBox(&GroundTiles[Id]);
             } // j
         } // i
     } // block
@@ -713,7 +847,20 @@ i32 main(i32 argc, char **argv)
     std::vector<GroundTile> Tiles04 = GetGroundTilesByMaterialIndex(GroundTiles, (MAP_SIZE * MAP_SIZE), MaterialTargetIndex);
     Mat04 = Tiles04.front().Mat;
 
+    // Rotated 45 degrees
     GroundMesh = GenMeshPlane(SQUARE_SIZE, SQUARE_SIZE, 1, 1);
+    Matrix rotationMatrix = MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD);
+    for (usize i = 0; i < MAP_SIZE; ++i)
+    {
+        for (usize j = 0; j < MAP_SIZE; ++j)
+        {
+            const usize Id = i * MAP_SIZE + j;
+            GroundTiles[Id].MatrixTransform = MatrixMultiply(rotationMatrix, GroundTiles[Id].MatrixTransform);
+        }
+    }
+
+    collision.distance = FLT_MAX;
+    collision.hit = false;
 
     printf("\n\tMemory usage before we start the game loop\n");
     PrintMemoryUsage();
