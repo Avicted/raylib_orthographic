@@ -1,5 +1,5 @@
 # Transport Tycoon style engine example
-- 2D Orthographic camera
+- Perspective Camera3D, that looks like an orthographic camera
 - Frustum culling
 - Batch rendering
 
