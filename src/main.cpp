@@ -218,6 +218,7 @@ GameUpdate(f64 DeltaTime)
 
         // Iterate through each GroundTile and check for ray collision
         // @Todo(Victor): Only iterate the visible tiles
+        // @Todo(Victor): Performance optimization
         for (int i = 0; i < MAP_SIZE * MAP_SIZE; i++)
         {
             // Transform the bounding box of the current tile
