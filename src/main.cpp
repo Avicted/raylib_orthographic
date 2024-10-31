@@ -9,8 +9,8 @@
 i32 SCREEN_WIDTH = 640 * 2;
 i32 SCREEN_HEIGHT = 360 * 2;
 
-bool Debug = true;
-const i64 MAP_SIZE = 512;
+bool Debug = false;
+const i64 MAP_SIZE = 256;
 const i64 SQUARE_SIZE = 32;
 
 u64 CPUMemory = 0L;
@@ -32,10 +32,10 @@ Camera3D MainCamera = {};
 const f64 CameraAngle = 0.0;
 const f64 CameraAndgleCos = cos(CameraAngle * DEG2RAD);
 const f64 CameraAndgleSin = sin(CameraAngle * DEG2RAD);
-Vector3 CameraStartPosition = (Vector3){90.0 * 2.0, 180.0 * 2, 90.0 * 2.0};
+const Vector3 CameraStartPosition = (Vector3){90.0 * 2.0, 180.0 * 2, 90.0 * 2.0};
 
 Camera3D DebugCamera = {};
-Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 180.0f * 2.0, 90.0f * 2.0};
+const Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 180.0f * 2.0, 90.0f * 2.0};
 
 // Types -----------------------------------------------------
 typedef struct GroundTile
@@ -46,6 +46,9 @@ typedef struct GroundTile
     // Material
     usize MaterialIndex;
     Material Mat;
+
+    // Tile ID
+    i64 Id;
 
     // Optional: Add a bounding box for frustum culling
     BoundingBox BoundingVolume;
@@ -81,7 +84,7 @@ Material Mat02;
 Material Mat03;
 Material Mat04;
 
-typedef struct TransformEntry
+typedef struct TrDrawCansformEntry
 {
     Matrix transform;
     i32 materialIndex;
@@ -182,8 +185,8 @@ GetTileCoordsUnderMouse(RayCollision groundHitInfo, Camera3D camera)
     Vector3 hitPosition = collision.point;
 
     // Convert to local grid coordinates by adjusting for map offset and tile size
-    f64 localX = hitPosition.x + (MAP_SIZE * SQUARE_SIZE) / 2.0f;
-    f64 localZ = hitPosition.z + (MAP_SIZE * SQUARE_SIZE) / 2.0f;
+    f64 localX = hitPosition.x * CameraAndgleCos - hitPosition.z * CameraAndgleSin + (MAP_SIZE * SQUARE_SIZE) / 2.0f;
+    f64 localZ = hitPosition.x * CameraAndgleSin + hitPosition.z * CameraAndgleCos + (MAP_SIZE * SQUARE_SIZE) / 2.0f;
 
     // Calculate tile indices (floor to get correct tile)
     tileCoords.x = floor(localX / SQUARE_SIZE);
@@ -210,35 +213,42 @@ GameUpdate(f64 DeltaTime)
     // Set the hovered tile
     {
         // Reset the collision info
-        // collision = {0};
         hitObjectName = "None";
         ray = GetMouseRay(GetMousePosition(), MainCamera);
 
-        // Check ray collision against ground quad
-        // g0: Bottom-left corner of the map.
-        const Vector3 g0 = Vector3Transform((Vector3){-MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, -MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
+        // Initialize collision distance to a large value so the closest hit is recorded
+        collision.distance = FLT_MAX;
+        SelectedGroundTile = NULL;
 
-        // g1: Bottom-right corner of the map.
-        const Vector3 g1 = Vector3Transform((Vector3){MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, -MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
-
-        // g2: Top-left corner of the map.
-        const Vector3 g2 = Vector3Transform((Vector3){-MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
-
-        // g3: Top-right corner of the map.
-        const Vector3 g3 = Vector3Transform((Vector3){MAP_SIZE * SQUARE_SIZE / 2.0f, 0.0f, MAP_SIZE * SQUARE_SIZE / 2.0f}, MatrixRotate((Vector3){0.0f, 1.0f, 0.0f}, 45.0f * DEG2RAD));
-
-        RayCollision groundHitInfo = GetRayCollisionQuad(ray, g0, g1, g2, g3);
-
-        if ((groundHitInfo.hit)) // && (groundHitInfo.distance < collision.distance))
+        // Iterate through each GroundTile and check for ray collision
+        for (int i = 0; i < MAP_SIZE * MAP_SIZE; i++)
         {
-            collision = groundHitInfo;
-            hitObjectName = "Ground";
+            // Transform the bounding box of the current tile
+            BoundingBox transformedBox;
+            transformedBox.min = Vector3Transform(GroundTiles[i].BoundingVolume.min, GroundTiles[i].MatrixTransform);
+            transformedBox.max = Vector3Transform(GroundTiles[i].BoundingVolume.max, GroundTiles[i].MatrixTransform);
 
-            Vector2 tileCoords = GetTileCoordsUnderMouse(groundHitInfo, MainCamera);
+            // Perform the ray collision check with the transformed bounding box
+            RayCollision tileHitInfo = GetRayCollisionBox(ray, transformedBox);
+            if (tileHitInfo.hit && tileHitInfo.distance < collision.distance)
+            {
+                // Update collision information and selected tile
+                collision = tileHitInfo;
+                hitObjectName = "Ground";
+                SelectedGroundTile = &GroundTiles[i];
+            }
+        }
+
+        if (Debug)
+        {
+            printf("Hit Tile ID: %lld, Distance: %f\n", (SelectedGroundTile != NULL) ? SelectedGroundTile->Id : -1, collision.distance);
+        }
+
+        // Check if a tile was hit
+        if (SelectedGroundTile != NULL)
+        {
+            Vector2 tileCoords = GetTileCoordsUnderMouse(collision, MainCamera);
             i64 Id = static_cast<i64>(tileCoords.x) * MAP_SIZE + static_cast<i64>(tileCoords.y);
-
-            // printf("Tile Coords: x: %f, y: %f\n", tileCoords.x, tileCoords.y);
-            // printf("Tile ID: %lld\n", Id);
 
             if (tileCoords.x >= 0 && tileCoords.y >= 0 &&
                 tileCoords.x < MAP_SIZE && tileCoords.y < MAP_SIZE)
@@ -370,7 +380,7 @@ GameUpdate(f64 DeltaTime)
 }
 
 internal void
-calculateBoundingBox(GroundTile *tile)
+CalculateBoundingBox(GroundTile *tile)
 {
     const f32 halfWidth = tile->width / 2.0f;
     const f32 halfDepth = tile->depth / 2.0f;
@@ -408,7 +418,7 @@ calculateBoundingBox(GroundTile *tile)
 }
 
 internal int
-isBoxInFrustum(const Frustum *frustum, const BoundingBox *box)
+IsBoxInFrustum(const Frustum *frustum, const BoundingBox *box)
 {
     for (i32 i = 0; i < 6; ++i)
     {
@@ -438,7 +448,7 @@ isBoxInFrustum(const Frustum *frustum, const BoundingBox *box)
 }
 
 internal Frustum
-calculateFrustum(Camera3D camera)
+CalculateFrustum(Camera3D camera)
 {
     Frustum frustum;
     Matrix viewMatrix = MatrixLookAt(camera.position, camera.target, camera.up);
@@ -483,7 +493,7 @@ GameRender(f64 DeltaTime)
     }
 
     // Center of the world
-    Frustum cameraFrustum = calculateFrustum(MainCamera); // Define and calculate the camera frustum here
+    Frustum cameraFrustum = CalculateFrustum(MainCamera); // Define and calculate the camera frustum here
     u64 InViewCount = 0;
 
     // Render wires for the cameraFrustum
@@ -517,10 +527,10 @@ GameRender(f64 DeltaTime)
             const usize Id = i * MAP_SIZE + j;
 
             // Calculate the bounding box for each tile
-            // calculateBoundingBox(&GroundTiles[Id]);
+            // CalculateBoundingBox(&GroundTiles[Id]);
 
             // Check if the tile is in the frustum
-            if (isBoxInFrustum(&cameraFrustum, &GroundTiles[Id].BoundingVolume))
+            if (IsBoxInFrustum(&cameraFrustum, &GroundTiles[Id].BoundingVolume))
             {
                 // Add the tile's transform to the appropriate list based on its material
                 if (GroundTiles[Id].MaterialIndex == 0)
@@ -612,8 +622,8 @@ GameRender(f64 DeltaTime)
     DrawTextEx(MainFont, TextFormat("MainCamera.fovy: %f", MainCamera.fovy), {10, 64}, 16, 2, BLACK);
     DrawTextEx(MainFont, TextFormat("MainCamera.fovy: %f", MainCamera.fovy), {13, 67}, 16, 2, WHITE);
 
-    // if isBoxInFrustum(&cameraFrustum, &GroundTiles[0].BoundingVolume)
-    if (isBoxInFrustum(&cameraFrustum, &GroundTiles[0].BoundingVolume))
+    // if IsBoxInFrustum(&cameraFrustum, &GroundTiles[0].BoundingVolume)
+    if (IsBoxInFrustum(&cameraFrustum, &GroundTiles[0].BoundingVolume))
     {
         DrawTextEx(MainFont, "Tile 01 is in the frustum", {10, 96}, 16, 2, BLACK);
         DrawTextEx(MainFont, "Tile 01 is in the frustum", {13, 99}, 16, 2, WHITE);
@@ -822,7 +832,7 @@ i32 main(i32 argc, char **argv)
                 GroundTiles[Id].BoundingVolume.min = (Vector3){-0.5f * SQUARE_SIZE, 0.0f * SQUARE_SIZE, -0.5f * SQUARE_SIZE};
                 GroundTiles[Id].BoundingVolume.max = (Vector3){0.5f * SQUARE_SIZE, 0.0f * SQUARE_SIZE, 0.5f * SQUARE_SIZE};
 
-                calculateBoundingBox(&GroundTiles[Id]);
+                CalculateBoundingBox(&GroundTiles[Id]);
             } // j
         } // i
     } // block
