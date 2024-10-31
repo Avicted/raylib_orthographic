@@ -38,24 +38,21 @@ Camera3D DebugCamera = {};
 const Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 180.0f * 2.0, 90.0f * 2.0};
 
 // Types -----------------------------------------------------
-typedef struct GroundTile
+struct GroundTile
 {
+    i64 Id;
+
     // 3D position
     Matrix MatrixTransform;
 
-    // Material
     usize MaterialIndex;
     Material Mat;
-
-    // Tile ID
-    i64 Id;
 
     // Optional: Add a bounding box for frustum culling
     BoundingBox BoundingVolume;
 
-    // Dimensions of the tile
-    f32 width;  // Full width of the tile
-    f32 depth;  // Full depth of the tile
+    f32 width;
+    f32 depth;
     f32 height; // Height of the tile (if applicable)
 };
 
@@ -67,13 +64,13 @@ RayCollision collision = {0};
 char *hitObjectName = "None";
 Ray ray = {0}; // Picking ray
 
-typedef struct Plane
+struct Plane
 {
     Vector3 normal; // Normal of the plane
     f32 distance;   // Distance from the origin to the plane
 };
 
-typedef struct Frustum
+struct Frustum
 {
     Plane planes[6]; // Define the 6 planes of the frustum
 };
@@ -83,12 +80,6 @@ Material Mat01;
 Material Mat02;
 Material Mat03;
 Material Mat04;
-
-typedef struct TrDrawCansformEntry
-{
-    Matrix transform;
-    i32 materialIndex;
-};
 
 // ----------------------------------------------------------
 
@@ -774,6 +765,8 @@ i32 main(i32 argc, char **argv)
             for (usize j = 0; j < MAP_SIZE; ++j)
             {
                 const usize Id = i * MAP_SIZE + j;
+
+                GroundTiles[Id].Id = Id;
 
                 const f32 X = i - MAP_SIZE / 2.0f + 0.5f;
                 const f32 Y = 0.0f;
