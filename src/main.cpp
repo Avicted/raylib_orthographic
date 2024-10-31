@@ -81,6 +81,11 @@ Material Mat02;
 Material Mat03;
 Material Mat04;
 
+// Lists to store the transforms of tiles in view for each material
+std::vector<Matrix> TransformsInView01;
+std::vector<Matrix> TransformsInView02;
+std::vector<Matrix> TransformsInView03;
+std::vector<Matrix> TransformsInView04;
 // ----------------------------------------------------------
 
 internal std::vector<GroundTile>
@@ -212,6 +217,7 @@ GameUpdate(f64 DeltaTime)
         SelectedGroundTile = NULL;
 
         // Iterate through each GroundTile and check for ray collision
+        // @Todo(Victor): Only iterate the visible tiles
         for (int i = 0; i < MAP_SIZE * MAP_SIZE; i++)
         {
             // Transform the bounding box of the current tile
@@ -504,12 +510,6 @@ GameRender(f64 DeltaTime)
 
     // Center of the world a test cube
     DrawCube((Vector3){0.0f, 32.0f, 0.0f}, 64.0f, 64.0f, 64.0f, RED);
-
-    // Lists to store the transforms of tiles in view for each material
-    std::vector<Matrix> TransformsInView01;
-    std::vector<Matrix> TransformsInView02;
-    std::vector<Matrix> TransformsInView03;
-    std::vector<Matrix> TransformsInView04;
 
     for (usize i = 0; i < MAP_SIZE; ++i)
     {
