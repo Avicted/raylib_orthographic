@@ -48,7 +48,7 @@ struct GroundTile
     usize MaterialIndex;
     Material Mat;
 
-    // Optional: Add a bounding box for frustum culling
+    // Used for frustum culling
     BoundingBox BoundingVolume;
 
     f32 width;
@@ -57,12 +57,19 @@ struct GroundTile
 };
 
 GroundTile *GroundTiles = NULL;
+std::vector<GroundTile> GroundTilesInView;
 
-GroundTile *SelectedGroundTile = NULL;
 // Display information about closest hit
-RayCollision collision = {0};
-char *hitObjectName = "None";
+RayCollision collision = {
+    .hit = false,
+    .distance = FLT_MAX,
+    .point = {0},
+    .normal = {0},
+};
+
+const char *hitObjectName = "None";
 Ray ray = {0}; // Picking ray
+GroundTile *SelectedGroundTile = NULL;
 
 struct Plane
 {
@@ -86,6 +93,8 @@ std::vector<Matrix> TransformsInView01;
 std::vector<Matrix> TransformsInView02;
 std::vector<Matrix> TransformsInView03;
 std::vector<Matrix> TransformsInView04;
+
+u64 InViewCount = 0;
 // ----------------------------------------------------------
 
 internal std::vector<GroundTile>
@@ -216,15 +225,13 @@ GameUpdate(f64 DeltaTime)
         collision.distance = FLT_MAX;
         SelectedGroundTile = NULL;
 
-        // Iterate through each GroundTile and check for ray collision
-        // @Todo(Victor): Only iterate the visible tiles
-        // @Todo(Victor): Performance optimization
-        for (int i = 0; i < MAP_SIZE * MAP_SIZE; i++)
+        // Check for ray collision with the ground plane in all TransformsInView lists
+        for (usize i = 0; i < InViewCount; ++i)
         {
             // Transform the bounding box of the current tile
             BoundingBox transformedBox;
-            transformedBox.min = Vector3Transform(GroundTiles[i].BoundingVolume.min, GroundTiles[i].MatrixTransform);
-            transformedBox.max = Vector3Transform(GroundTiles[i].BoundingVolume.max, GroundTiles[i].MatrixTransform);
+            transformedBox.min = Vector3Transform(GroundTilesInView[i].BoundingVolume.min, GroundTilesInView[i].MatrixTransform);
+            transformedBox.max = Vector3Transform(GroundTilesInView[i].BoundingVolume.max, GroundTilesInView[i].MatrixTransform);
 
             // Perform the ray collision check with the transformed bounding box
             RayCollision tileHitInfo = GetRayCollisionBox(ray, transformedBox);
@@ -233,13 +240,13 @@ GameUpdate(f64 DeltaTime)
                 // Update collision information and selected tile
                 collision = tileHitInfo;
                 hitObjectName = "Ground";
-                SelectedGroundTile = &GroundTiles[i];
+                SelectedGroundTile = &GroundTilesInView[i];
             }
         }
 
         if (Debug)
         {
-            printf("Hit Tile ID: %lld, Distance: %f\n", (SelectedGroundTile != NULL) ? SelectedGroundTile->Id : -1, collision.distance);
+            printf("Hit Tile ID: %ld, Distance: %f\n", (SelectedGroundTile != NULL) ? SelectedGroundTile->Id : -1, collision.distance);
         }
 
         // Check if a tile was hit
@@ -492,7 +499,6 @@ GameRender(f64 DeltaTime)
 
     // Center of the world
     Frustum cameraFrustum = CalculateFrustum(MainCamera); // Define and calculate the camera frustum here
-    u64 InViewCount = 0;
 
     // Render wires for the cameraFrustum
     if (Debug)
@@ -512,6 +518,16 @@ GameRender(f64 DeltaTime)
     // Center of the world a test cube
     DrawCube((Vector3){0.0f, 32.0f, 0.0f}, 64.0f, 64.0f, 64.0f, RED);
 
+    GroundTilesInView.clear();
+    // GroundTilesInView = NULL;
+
+    TransformsInView01.clear();
+    TransformsInView02.clear();
+    TransformsInView03.clear();
+    TransformsInView04.clear();
+
+    InViewCount = 0;
+
     for (usize i = 0; i < MAP_SIZE; ++i)
     {
         for (usize j = 0; j < MAP_SIZE; ++j)
@@ -524,6 +540,8 @@ GameRender(f64 DeltaTime)
             // Check if the tile is in the frustum
             if (IsBoxInFrustum(&cameraFrustum, &GroundTiles[Id].BoundingVolume))
             {
+                GroundTilesInView.push_back(GroundTiles[Id]);
+
                 // Add the tile's transform to the appropriate list based on its material
                 if (GroundTiles[Id].MaterialIndex == 0)
                 {
@@ -544,12 +562,6 @@ GameRender(f64 DeltaTime)
 
                 InViewCount++;
             }
-
-            // Draw the bounding box for each tile
-            /*if (Debug)
-            {
-                DrawBoundingBox(GroundTiles[Id].BoundingVolume, RED);
-            }*/
         }
     }
 
@@ -588,13 +600,13 @@ GameRender(f64 DeltaTime)
                 collision.point.y + collision.normal.y,
                 collision.point.z + collision.normal.z};
 
-            DrawLine3D(collision.point, normalEnd, RED);
+            // DrawLine3D(collision.point, normalEnd, RED);
 
             // Highlight the selected tile
             DrawCubeWires(Vector3Transform((Vector3){0.0f, 0.0f, 0.0f}, SelectedGroundTile->MatrixTransform), SelectedGroundTile->width, SelectedGroundTile->height, SelectedGroundTile->depth, WHITE);
         }
 
-        DrawRay(ray, MAROON);
+        // DrawRay(ray, MAROON);
     }
 
     // DrawGrid(MAP_SIZE, SQUARE_SIZE);
@@ -692,67 +704,9 @@ SigIntHandler(i32 Signal)
     exit(0);
 }
 
-i32 main(i32 argc, char **argv)
+internal void
+SetupGroundTiles(void)
 {
-    signal(SIGINT, SigIntHandler);
-
-    ParseInputArgs(argc, argv);
-
-    printf("\tHello from raylib_orthographic!\n\n");
-
-    MainCamera.position = CameraStartPosition;
-    MainCamera.target = {0.0f, 0.0f, 0.0f};
-    MainCamera.up = {0.0f, 1.0f, 0.0f};
-    MainCamera.fovy = 75.0f;
-    MainCamera.projection = CAMERA_PERSPECTIVE;
-
-    DebugCamera.position = DebugCameraStartPosition;
-    DebugCamera.target = {0.0f, 0.0f, 0.0f};
-    DebugCamera.up = {0.0f, 1.0f, 0.0f};
-    DebugCamera.fovy = 75.0f;
-    DebugCamera.projection = CAMERA_PERSPECTIVE;
-
-    // Raylib setup ---------------------------------------------------
-    SetTraceLogLevel(LOG_WARNING);
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "raylib_orthographic");
-
-    SetTargetFPS(144);
-    SetWindowState(FLAG_VSYNC_HINT);
-    // ----------------------------------------------------------------
-
-    MainFont = LoadFontEx("./resources/fonts/SuperMarioBros2.ttf", 32, 0, 250);
-    GrassTexture = LoadTexture("./resources/images/grass.png");
-    GrassTexture02 = LoadTexture("./resources/images/grass_02.png");
-    GrassTexture03 = LoadTexture("./resources/images/grass_03.png");
-    GrassTexture04 = LoadTexture("./resources/images/grass_04.png");
-
-    CustomShader = LoadShader("./shaders/lighting_instancing.vs", "./shaders/lighting.fs");
-
-    // Get shader locations
-    CustomShader.locs[SHADER_LOC_MATRIX_MVP] = GetShaderLocation(CustomShader, "mvp");
-    CustomShader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(CustomShader, "viewPos");
-    CustomShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocationAttrib(CustomShader, "instanceTransform");
-
-    // Lighting
-    {
-        // Setting shader values
-        i32 AmbientLoc = GetShaderLocation(CustomShader, "ambient");
-        f64 AmbientValue[4] = {0.8, 0.8, 0.8, 0.1};
-        SetShaderValue(CustomShader, AmbientLoc, &AmbientValue, SHADER_UNIFORM_VEC4);
-
-        i32 ColorDiffuseLoc = GetShaderLocation(CustomShader, "colorDiffuse");
-        f64 DiffuseValue[4] = {1.0, 1.0, 1.0, 1.0};
-        SetShaderValue(CustomShader, ColorDiffuseLoc, &DiffuseValue, SHADER_UNIFORM_VEC4);
-
-        // Like the sun shining on the earth
-        CreateLight(LIGHT_DIRECTIONAL, {1000.0f, 1000.0f, 0.0f}, Vector3Zero(), WHITE, CustomShader);
-
-        // We can also add a polight at the center of the world
-        // CreateLight(LIGHT_POINT, {0.0f, 0.0f, 0.0f}, Vector3Zero(), WHITE, CustomShader);
-    }
-
     // Create the ground tiles
     {
         GroundMaterials = (Material *)calloc((MAP_SIZE * MAP_SIZE), sizeof(Material));
@@ -862,9 +816,85 @@ i32 main(i32 argc, char **argv)
             GroundTiles[Id].MatrixTransform = MatrixMultiply(rotationMatrix, GroundTiles[Id].MatrixTransform);
         }
     }
+}
 
-    collision.distance = FLT_MAX;
-    collision.hit = false;
+internal void
+SetupShaders(void)
+{
+    CustomShader = LoadShader("./shaders/lighting_instancing.vs", "./shaders/lighting.fs");
+
+    // Get shader locations
+    CustomShader.locs[SHADER_LOC_MATRIX_MVP] = GetShaderLocation(CustomShader, "mvp");
+    CustomShader.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(CustomShader, "viewPos");
+    CustomShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocationAttrib(CustomShader, "instanceTransform");
+
+    // Lighting
+    {
+        // Setting shader values
+        i32 AmbientLoc = GetShaderLocation(CustomShader, "ambient");
+        f64 AmbientValue[4] = {0.8, 0.8, 0.8, 0.1};
+        SetShaderValue(CustomShader, AmbientLoc, &AmbientValue, SHADER_UNIFORM_VEC4);
+
+        i32 ColorDiffuseLoc = GetShaderLocation(CustomShader, "colorDiffuse");
+        f64 DiffuseValue[4] = {1.0, 1.0, 1.0, 1.0};
+        SetShaderValue(CustomShader, ColorDiffuseLoc, &DiffuseValue, SHADER_UNIFORM_VEC4);
+
+        // Like the sun shining on the earth
+        CreateLight(LIGHT_DIRECTIONAL, {1000.0f, 1000.0f, 0.0f}, Vector3Zero(), WHITE, CustomShader);
+
+        // We can also add a polight at the center of the world
+        // CreateLight(LIGHT_POINT, {0.0f, 0.0f, 0.0f}, Vector3Zero(), WHITE, CustomShader);
+    }
+}
+
+internal void
+SetupResources(void)
+{
+    MainFont = LoadFontEx("./resources/fonts/SuperMarioBros2.ttf", 32, 0, 250);
+    GrassTexture = LoadTexture("./resources/images/grass.png");
+    GrassTexture02 = LoadTexture("./resources/images/grass_02.png");
+    GrassTexture03 = LoadTexture("./resources/images/grass_03.png");
+    GrassTexture04 = LoadTexture("./resources/images/grass_04.png");
+}
+
+internal void
+SetupCameras(void)
+{
+    MainCamera.position = CameraStartPosition;
+    MainCamera.target = {0.0f, 0.0f, 0.0f};
+    MainCamera.up = {0.0f, 1.0f, 0.0f};
+    MainCamera.fovy = 75.0f;
+    MainCamera.projection = CAMERA_PERSPECTIVE;
+
+    DebugCamera.position = DebugCameraStartPosition;
+    DebugCamera.target = {0.0f, 0.0f, 0.0f};
+    DebugCamera.up = {0.0f, 1.0f, 0.0f};
+    DebugCamera.fovy = 75.0f;
+    DebugCamera.projection = CAMERA_PERSPECTIVE;
+}
+
+i32 main(i32 argc, char **argv)
+{
+    signal(SIGINT, SigIntHandler);
+
+    ParseInputArgs(argc, argv);
+
+    printf("\tHello from raylib_orthographic!\n\n");
+
+    // Raylib setup ---------------------------------------------------
+    SetTraceLogLevel(LOG_WARNING);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "raylib_orthographic");
+
+    SetTargetFPS(144);
+    SetWindowState(FLAG_VSYNC_HINT);
+    // ----------------------------------------------------------------
+
+    SetupCameras();
+    SetupResources();
+    SetupShaders();
+    SetupGroundTiles();
 
     printf("\n\tMemory usage before we start the game loop\n");
     PrintMemoryUsage();

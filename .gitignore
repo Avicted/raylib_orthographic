@@ -3,3 +3,6 @@
 build/
 
 raylib_orthographic
+
+valgrind-out.txt
+vgcore*
