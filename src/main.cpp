@@ -40,7 +40,7 @@ const Vector3 DebugCameraStartPosition = (Vector3){90.0f * 2.0, 180.0f * 2.0, 90
 // Types -----------------------------------------------------
 struct GroundTile
 {
-    i64 Id;
+    usize Id;
 
     // 3D position
     Matrix MatrixTransform;
@@ -96,6 +96,19 @@ std::vector<Matrix> TransformsInView04;
 
 u64 InViewCount = 0;
 // ----------------------------------------------------------
+
+// Railroads and trains -------------------------------------
+Model RailRoadStraightModel;
+
+struct TrainTrack
+{
+    Model m_Model;
+    Vector3 Position;
+    Vector3 Rotation;
+};
+
+std::vector<TrainTrack> TrainTracks;
+// Functions -------------------------------------------------
 
 internal std::vector<GroundTile>
 GetGroundTilesByMaterialIndex(GroundTile *groundTiles, usize count, usize targetIndex)
@@ -226,12 +239,13 @@ GameUpdate(f64 DeltaTime)
         SelectedGroundTile = NULL;
 
         // Check for ray collision with the ground plane in all TransformsInView lists
-        for (usize i = 0; i < InViewCount; ++i)
+        // for (usize i = 0; i < InViewCount; ++i)
+        for (usize i = 0; i < (MAP_SIZE * MAP_SIZE); ++i)
         {
             // Transform the bounding box of the current tile
             BoundingBox transformedBox;
-            transformedBox.min = Vector3Transform(GroundTilesInView[i].BoundingVolume.min, GroundTilesInView[i].MatrixTransform);
-            transformedBox.max = Vector3Transform(GroundTilesInView[i].BoundingVolume.max, GroundTilesInView[i].MatrixTransform);
+            transformedBox.min = Vector3Transform(GroundTiles[i].BoundingVolume.min, GroundTiles[i].MatrixTransform);
+            transformedBox.max = Vector3Transform(GroundTiles[i].BoundingVolume.max, GroundTiles[i].MatrixTransform);
 
             // Perform the ray collision check with the transformed bounding box
             RayCollision tileHitInfo = GetRayCollisionBox(ray, transformedBox);
@@ -240,7 +254,7 @@ GameUpdate(f64 DeltaTime)
                 // Update collision information and selected tile
                 collision = tileHitInfo;
                 hitObjectName = "Ground";
-                SelectedGroundTile = &GroundTilesInView[i];
+                SelectedGroundTile = &GroundTiles[i];
             }
         }
 
@@ -382,6 +396,25 @@ GameUpdate(f64 DeltaTime)
             DebugCamera.target.y -= 8.0f;
         }
     }
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+    {
+        if (SelectedGroundTile != NULL)
+        {
+            if (collision.hit)
+            {
+                // Place a new into TrainTracks
+                TrainTrack newTrack = {
+                    .m_Model = RailRoadStraightModel,
+                    .Position = (Vector3){SelectedGroundTile->MatrixTransform.m12, 1.0f, SelectedGroundTile->MatrixTransform.m14},
+                    .Rotation = {0.0f, 0.0f, 0.0f}};
+
+                TrainTracks.push_back(newTrack);
+
+                printf("TrainTrack added at: %f, %f, %f\n", collision.point.x, 1.0f, collision.point.z);
+            }
+        }
+    }
 }
 
 internal void
@@ -516,10 +549,9 @@ GameRender(f64 DeltaTime)
     }
 
     // Center of the world a test cube
-    DrawCube((Vector3){0.0f, 32.0f, 0.0f}, 64.0f, 64.0f, 64.0f, RED);
+    DrawCube((Vector3){0.0f, 16.0f, 0.0f}, 32.0f, 32.0f, 32.0f, RED);
 
     GroundTilesInView.clear();
-    // GroundTilesInView = NULL;
 
     TransformsInView01.clear();
     TransformsInView02.clear();
@@ -581,6 +613,16 @@ GameRender(f64 DeltaTime)
     if (!TransformsInView04.empty())
     {
         DrawMeshInstanced(GroundMesh, Mat04, TransformsInView04.data(), TransformsInView04.size());
+    }
+
+    // Railroads and Trains
+    {
+        DrawModel(RailRoadStraightModel, (Vector3){64.0f + 16.0f, 1.0f, 64.0f + 16.0f}, 32.0f, WHITE);
+
+        for (usize i = 0; i < TrainTracks.size(); ++i)
+        {
+            DrawModel(TrainTracks[i].m_Model, TrainTracks[i].Position, 32.0f, WHITE);
+        }
     }
 
     // Highlight the selected tile
@@ -873,6 +915,12 @@ SetupCameras(void)
     DebugCamera.projection = CAMERA_PERSPECTIVE;
 }
 
+internal void
+SetupRailroadsAndTrains(void)
+{
+    RailRoadStraightModel = LoadModel("./resources/models/GLB format/railroad-straight.glb");
+}
+
 i32 main(i32 argc, char **argv)
 {
     signal(SIGINT, SigIntHandler);
@@ -895,6 +943,7 @@ i32 main(i32 argc, char **argv)
     SetupResources();
     SetupShaders();
     SetupGroundTiles();
+    SetupRailroadsAndTrains();
 
     printf("\n\tMemory usage before we start the game loop\n");
     PrintMemoryUsage();

@@ -15,5 +15,8 @@ cd ..
 
 ![demo](resources/output.gif "output.gif")
 
+## Resources
+- [https://kenney.nl/assets/train-kit](https://kenney.nl/assets/train-kit)
+
 ### License
 MIT License
